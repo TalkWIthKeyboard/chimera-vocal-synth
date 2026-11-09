@@ -43,6 +43,8 @@ fn consonants_at(segs: &[Segment], body: BodyMix, k: f64, hz: f64) -> Vec<Segmen
 
 /// a sung vowel keeps at least this long when a short note squeezes its consonants (s)
 const MIN_VOWEL: f64 = 0.05;
+/// a sung vowel keeps at least this share of its note when the consonants are squeezed
+const MIN_VOWEL_SHARE: f64 = 0.45;
 /// a squeezed consonant keeps at least this long (s); a flap is 16 ms
 const MIN_CONSONANT: f64 = 0.012;
 
@@ -53,7 +55,9 @@ const MIN_CONSONANT: f64 = 0.012;
 fn fit(groups: [&mut [Segment]; 2], span: f64) {
     let [a, b] = groups;
     let cons = total(a) + total(b);
-    let room = span - MIN_VOWEL;
+    // the vowel keeps at least MIN_VOWEL_SHARE of the note: at a quarter beat in a march
+    // (~140 ms) the spoken-length onset of a Mandarin [ɕjɛn] left its vowel 50 ms of transition
+    let room = span - js_max(MIN_VOWEL, MIN_VOWEL_SHARE * span);
     if cons <= room || cons <= 0.0 {
         return;
     }
