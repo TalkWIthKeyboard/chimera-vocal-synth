@@ -236,6 +236,8 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         t += d;
     }
     let end = t;
+    // Mandarin speech: a segment carries a tone (sung lyrics don't). It alone takes the branches below.
+    let tonal = segs.iter().any(|s| s.tone.is_some());
     // ---- vowel gestures: overlap neighbours so the tongue travels vowel-to-vowel
     let v_idx: Vec<usize> = segs.iter().enumerate().filter(|(_, s)| s.vowel.is_some()).map(|(i, _)| i).collect();
     for (n, &i) in v_idx.iter().enumerate() {
@@ -246,7 +248,11 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         // the next vowel at the release and the transitions carry the consonant's place
         let r_in = js_max(0.03, 0.75 * (times[i].t0 - prev)) + 0.01;
         let r_out = js_max(0.03, 0.4 * (next - times[i].t1)) + 0.01;
-        gestures.push(Gesture::new(times[i].t0, times[i].t1, r_in, r_out, 1.0, artic_targets(segs[i].vowel.as_ref().unwrap())).label(segs[i].ipa));
+        // A Mandarin utterance that ends on a vowel holds it until the voice has died (as its final
+        // nasal is held, below): let go on time, the tongue was already relaxing under the last of
+        // the voicing, and that offglide was heard as a coda (出发 → 出汗, 理发 → 瑞汉).
+        let hold = if tonal && i == segs.len() - 1 && o.open_end != Some(true) { 0.12 } else { 0.0 };
+        gestures.push(Gesture::new(times[i].t0, times[i].t1 + hold, r_in, r_out, 1.0, artic_targets(segs[i].vowel.as_ref().unwrap())).label(segs[i].ipa));
     }
     // utterance-initial/final consonants: lend them the nearest vowel's body posture
     // ---- consonant gestures
@@ -261,6 +267,10 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             kind: if s.vowel.is_some() { "vowel".to_string() } else { s.def.map_or("?", |d| d.manner.as_str()).to_string() },
         });
         let Some(def) = s.def.as_ref() else { continue };
+        // A Mandarin nasal coda that ends the utterance is not released: the closure and the
+        // lowered velum hold until the voice has died. Released on time, into the last of the
+        // voicing, 今晚 was heard as 今晚呢 (Paraformer added a 呢 to 10 of 24 such words).
+        let coda_hold = if tonal && def.nasal == Some(true) && i == segs.len() - 1 && o.open_end != Some(true) { 0.15 } else { 0.0 };
         let next_vowel = i < segs.len() - 1 && segs[i + 1].vowel.is_some();
         let prev_seg = if i > 0 { Some(&segs[i - 1]) } else { None };
         let mut add_oral = |tg: &ArticPatch, a: f64, b: f64, speed: f64, label: &str| oral_gestures_into(def, tg, a, b, speed, label, &mut gestures);
@@ -272,7 +282,7 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             // The delay leaves the closure 30 ms before its release (its 10 ms minimum hold and
             // its ~20 ms early release), so a short sung stop isn't pushed past its own end.
             Manner::Stop if pre_placed_behind_closure(&segs, i) => add_oral(&def.targets, t0 + js_min(PLACED_CLOSURE_DELAY, js_max(0.0, dur - 0.03)), t1, 1.55, def.ipa),
-            Manner::Stop | Manner::Nasal => add_oral(&def.targets, t0, t1, 1.55, def.ipa),
+            Manner::Stop | Manner::Nasal => add_oral(&def.targets, t0, t1 + coda_hold, 1.55, def.ipa),
             Manner::Tap => add_oral(&def.targets, t0, t1, 2.8, def.ipa),
             Manner::Trill => {
                 // driven trill: rapid alternation of near-closure and release at ~26 Hz
@@ -298,7 +308,7 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         // nasality: the velum lowers in anticipation (into the preceding vowel, as in English) and
         // seals again by the end of the nasal; 0.45 cm² is ample for the murmur
         if def.nasal == Some(true) {
-            gestures.push(Gesture::new(t0 - 0.02, t1 - 0.02, 0.05, 0.03, 4.0, one(ArticKey::Velum, 0.45)).label("velum"));
+            gestures.push(Gesture::new(t0 - 0.02, t1 - 0.02 + coda_hold, 0.05, 0.03, 4.0, one(ArticKey::Velum, 0.45)).label("velum"));
         }
         // phonation
         let k2 = 1.0; // abduction is body-scaled in the voice
@@ -328,7 +338,12 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
     // lands on the beat), so a singer times the breath to it: the pressure reaches full drive as
     // the first segment starts, and builds into adducted folds or behind the first constriction
     // rather than voicing ahead of the note. Speech and live notes keep their 20 ms lead.
-    let breath_at = if sung { BREATH_SUNG_AT } else { 0.04 };
+    // Mandarin speech (a segment carries a tone) starts its breath 60 ms into the first segment:
+    // with the usual lead the folds voiced before an initial affricate or approximant had formed,
+    // and that blip was heard as a syllable (请客 → 不请客, 让开 → 别让开). Paraformer's character
+    // errors, male / female: isolated words 55.0 / 52.3 → 51.0 / 45.0 %, 120 sentences
+    // 17.5 / 19.4 → 14.7 / 15.9 %; later still (90 ms+) cut into the first syllable and lost it all.
+    let breath_at = if sung { BREATH_SUNG_AT } else if tonal { 0.12 } else { 0.04 };
     gestures.push(Gesture::new(o.t0 + breath_at, end, 0.04, if open_end { 0.07 } else { 0.05 }, 1.0, one(ControlKey::BREATH, 1.0)).label("breath"));
     // ---- end of the breath group: the folds part as the breath stops, so a final obstruent is
     // released into silence instead of into an added vowel ("cat-uh"). After a vowel or sonorant

@@ -32,9 +32,9 @@ fn initial(i: &str) -> Option<(&'static str, Option<bool>)> {
         "ch" => ("ʈʂ", Some(true)),
         "sh" => ("ʂ", None),
         "r" => ("ɻ", None),
-        "z" => ("ts", Some(false)),
-        "c" => ("ts", Some(true)),
-        "s" => ("s", None),
+        "z" => ("ts̪", Some(false)),
+        "c" => ("ts̪", Some(true)),
+        "s" => ("s̪", None),
         _ => return None,
     })
 }
@@ -133,6 +133,9 @@ pub fn syllable(s: &str) -> Option<(Vec<Segment>, u8)> {
         out.push(Segment { aspirated, ..Segment::new(ipa) });
     }
     for p in parts {
+        // a neutral-tone e is [ə] (了 的 个): with the full [ɤ], short, 了 went unheard 27 times in 120
+        // sentences. A full-tone [ə] (歌 特) the listener rejected against [ɤ] in A/B.
+        let p = if tone == 5 && *p == "ɤ" { &"ə" } else { p };
         let nucleus = !matches!(*p, "j" | "w" | "ɥ" | "n" | "ŋ");
         out.push(if nucleus { Segment { tone: Some(tone), stress: Some(if tone < 5 { 1 } else { 0 }), ..Segment::new(p) } } else { Segment::new(p) });
     }
@@ -278,7 +281,7 @@ impl MandarinG2P {
         third_tone_sandhi(&mut syls);
         let n = syls.len();
         for (k, s) in syls.iter_mut().enumerate() {
-            nucleus_duration(s, k == n - 1);
+            speech_durations(s, k == n - 1);
         }
         let mut segs = Vec::new();
         let mut said = Vec::new();
@@ -386,24 +389,46 @@ fn yi_bu_sandhi(syls: &mut [&mut Syl]) {
     }
 }
 
-/// Mandarin is syllable-timed (~4–5 syllables/s read aloud), and a tone needs time on its rhyme:
-/// the English duration rules (stress-timed, polysyllabic shortening) left nuclei of 60–70 ms,
-/// devoiced after aspiration. The nucleus gets a fixed length (onsets and codas keep theirs):
-/// longer for a diphthong, shorter before a nasal coda, phrase-finally longer, neutral tone short.
-fn nucleus_duration(s: &mut Syl, last: bool) {
+/// Mandarin is syllable-timed, and the English duration rules (stress-timed, polysyllabic
+/// shortening) left nuclei of 60–70 ms, devoiced after aspiration. The nucleus gets a fixed
+/// length: longer for a diphthong, shorter before a nasal coda, phrase-finally longer, neutral
+/// tone shorter (at 80 ms 了 went unheard). That is twice a real speaker's, on purpose: with real
+/// lengths (50–90 ms) Paraformer's character errors on 120 sentences were 52 %, at 125 ms 23 %,
+/// at 150 ms 15 %, at 240 ms 13 %; in A/B the listener heard no gain from 180 over 150.
+///
+/// Consonants and glides get the mean length four real voices gave them (90 sentences, cut by
+/// forced alignment); a glide after an initial is short, as the aligner hears it inside the
+/// vowel. At the English defaults the same error was 13 points higher, mostly from the glides.
+fn speech_durations(s: &mut Syl, last: bool) {
     let coda = s.segs.last().is_some_and(|x| x.ipa == "n" || x.ipa == "ŋ");
-    let Some(v) = s.segs.iter_mut().find(|x| x.tone.is_some()) else { return };
-    let mut d = if s.tone == 5 { 0.08 } else { 0.15 };
-    if v.ipa.chars().count() > 1 {
-        d += 0.04;
+    let nucleus = s.segs.iter().position(|x| x.tone.is_some()).unwrap_or(s.segs.len());
+    for (i, x) in s.segs.iter_mut().enumerate() {
+        let ms = match x.ipa.as_str() {
+            _ if i == nucleus => {
+                let mut d = if s.tone == 5 { 120.0 } else { 150.0 };
+                if x.ipa.chars().count() > 1 {
+                    d += 40.0;
+                }
+                if coda {
+                    d -= 30.0;
+                }
+                if last { d * 1.5 } else { d }
+            }
+            "b" | "d" | "g" => 58.0,
+            "p" | "t" | "k" => 90.0,
+            "tɕ" | "ʈʂ" | "ts̪" if x.aspirated == Some(true) => 101.0,
+            "tɕ" | "ʈʂ" | "ts̪" => 73.0,
+            "f" | "s̪" | "ʂ" | "ɕ" | "h" => 100.0,
+            "m" => 63.0,
+            "l" => 46.0,
+            "ɻ" => 67.0,
+            "n" | "ŋ" if i > nucleus => 67.0 * if last { 1.56 } else { 1.0 } * if s.tone == 5 { 0.85 } else { 1.0 },
+            "n" => 50.0,
+            "j" | "w" | "ɥ" if i > 0 => 30.0,
+            _ => 57.0, // a glide that starts the syllable
+        };
+        x.dur = Some(ms / 1000.0);
     }
-    if coda {
-        d -= 0.03;
-    }
-    if last {
-        d *= 1.5;
-    }
-    v.dur = Some(d);
 }
 
 /// 3 3 → 2 3: in a run of third tones every one but the last rises.
@@ -449,8 +474,8 @@ mod tests {
         assert_eq!(ipa("lü4"), "ly4");
         assert_eq!(ipa("lv4"), "ly4");
         assert_eq!(ipa("shi4"), "ʂɨ4");
-        assert_eq!(ipa("ci2"), "tsʰɨ2");
-        assert_eq!(ipa("de"), "dɤ5");
+        assert_eq!(ipa("ci2"), "ts̪ʰɨ2");
+        assert_eq!(ipa("de"), "də5");
         assert_eq!(ipa("bo1"), "bwo1");
         assert_eq!(ipa("yi1"), "i1");
         assert_eq!(ipa("er4"), "ɚ4");

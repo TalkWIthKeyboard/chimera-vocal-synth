@@ -191,7 +191,16 @@ fn base() -> Vec<PhonemeDef> {
         // alveolo-palatal (Mandarin x): the blade against the back of the ridge with the body raised
         // toward the palate, lips spread. A tongue-body constriction (like [ç]) sat no higher than
         // the [i y] it precedes, so "xi xu" had no frication and were heard as [n j]
-        c("ɕ", "voiceless alveolo-palatal fricative", M::Fricative, Voiceless, "postalveolar", t(&[(TtX, 5.9), (TtY, 9.45), (Jaw, 0.3), (TbX, 3.8), (TbY, 7.9)]), &[TtX, TtY, Jaw], 0.12).cal(0.09, TtY),
+        // The blade sits further forward than for [ʃ] (swept with the gap, like [s̪]): at the [ʃ] place
+        // the noise peaked at 2-3 kHz, the reference voices' at 3-5 kHz.
+        // ponytail: fixed gap for every body (as [s̪]); .cal() it if a body's [ɕ] goes silent
+        c("ɕ", "voiceless alveolo-palatal fricative", M::Fricative, Voiceless, "postalveolar", t(&[(TtX, 6.3), (TtY, 9.1), (Jaw, 0.3), (TbX, 3.8), (TbY, 7.9)]), &[TtX, TtY, Jaw], 0.12),
+        // dental sibilant (Mandarin s, and the release of z c): the tip at the teeth with a wider gap
+        // than [s]. The front cavity of [s] rings at 3-4 kHz in this voice, where a real speaker's
+        // [ʂ] does, and 四十 was heard as 事实; here the noise lies at 4-7 kHz like the reference
+        // voices' [s]. Tip and gap were swept together (further forward, or narrower, the teeth
+        // source shuts off); not area-calibrated per body.
+        c("s̪", "voiceless dental sibilant", M::Fricative, Voiceless, "dental", t(&[(TtX, 6.6), (TtY, 8.7), (Jaw, 0.3)]), &[TtX, TtY, Jaw], 0.12),
         c("x", "voiceless velar fricative", M::Fricative, Voiceless, "velar", t(&[(TbX, 2.3), (TbY, 7.7)]), &[TbY], 0.12).cal(0.18, TbY),
         c("ɣ", "voiced velar fricative", M::Fricative, Voiced, "velar", t(&[(TbX, 2.3), (TbY, 7.7)]), &[TbY], 0.09).cal(0.2, TbY),
         c("χ", "voiceless uvular fricative", M::Fricative, Voiceless, "uvular", t(&[(TbX, 1.55), (TbY, 7.6)]), &BODY, 0.12).cal(0.2, TbY),
@@ -210,6 +219,7 @@ fn base() -> Vec<PhonemeDef> {
         // the body seals at the hard palate (a blade closure was heard as [t]) with the blade already
         // raised where [ɕ] constricts, so the release goes straight into its frication
         c("tɕ", "voiceless alveolo-palatal affricate", M::Affricate, Voiceless, "palatal", t(&[(TbX, 3.95), (TbY, 8.45), (TtX, 5.9), (TtY, 9.3)]), &BODY, 0.14).rel("ɕ"),
+        c("ts̪", "voiceless dental affricate", M::Affricate, Voiceless, "dental", t(&[(TtX, 6.6), (TtY, 9.3)]), &TIP, 0.14).rel("s̪"),
         c("ʈʂ", "voiceless retroflex affricate", M::Affricate, Voiceless, "retroflex", t(RETRO_STOP), TIP_CURL, 0.14).rel("ʂ"),
         c("pf", "voiceless labiodental affricate", M::Affricate, Voiceless, "labiodental", t(BILABIAL), &LIPS, 0.14).rel("f"),
         // approximants, laterals, taps, trills
