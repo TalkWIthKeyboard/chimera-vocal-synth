@@ -135,6 +135,10 @@ pub struct Syllable {
     /// over the last 35%); None: the planner's 20%
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offglide: Option<f64>,
+    /// the syllable's lexical tone (Mandarin 1-4, 5 neutral), for a reader that draws it its own way
+    /// (speech does, around the intonation: `mandarin::speech_tone_bends`); None: a language without
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tone: Option<u8>,
 }
 
 /// Which end of its sung vowel a pitch bend sits at.

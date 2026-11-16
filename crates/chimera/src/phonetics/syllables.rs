@@ -10,12 +10,12 @@
 //! "~") holds the previous vowel onto the next note (melisma), as in vocaloid editors.
 
 use crate::anatomy::human::BodyMix;
-use super::english::js_is_space;
+use super::english::{Phrase, js_is_space};
 use super::korean::Korean;
-use super::mandarin::{Mandarin, MandarinLexicon, Pinyin};
+use super::mandarin::{Mandarin, MandarinLexicon, Pinyin, speech_tone_bends};
 use super::russian::Russian;
 use super::planner::is_vowel;
-use super::{Segment, Syllable};
+use super::{Intonation, Segment, Syllable};
 use serde::{Deserialize, Serialize};
 
 // English onsets (IPA), longest first matters only for the search below
@@ -321,4 +321,75 @@ pub fn lyrics_to_syllables(text: &str, g2p: &impl WordSource) -> Vec<Syllable> {
 /// all read lyrics through, so a new front end can't be missing from one of them.
 pub fn lyrics_to_syllables_with(text: &str, g2p: &impl WordSource, zh: &MandarinLexicon) -> Vec<Syllable> {
     read_lyrics(text, &[&Pinyin, &English(g2p), &Korean, &Russian, &Mandarin(zh)])
+}
+
+/// Speech from text through the same front ends as lyrics, for text that has Mandarin in it: phrases
+/// of segments, a toned syllable's vowel carrying its tone as bends around the intonation. `None`
+/// when no word is Mandarin (no syllable has a tone), so English, and every other language the front
+/// ends read, is spoken as before. Words are routed one by one, so one accented letter doesn't turn
+/// a whole text Mandarin and `我爱你 hello` keeps its hello.
+///
+/// Punctuation splits phrases as it does for English (a "?" asks, a stop pauses longer than a
+/// comma). The syllables' sung timing (a held nasal, a short affricate) isn't carried over: speech
+/// takes the planner's durations.
+pub fn speech_phrases_with(text: &str, g2p: &impl WordSource, zh: &MandarinLexicon) -> Option<Vec<Phrase>> {
+    let mut pieces: Vec<(Vec<Syllable>, Option<char>)> = Vec::new();
+    let mut cur = String::new();
+    let mut flush = |cur: &mut String, delim: Option<char>| {
+        let syls = lyrics_to_syllables_with(cur, g2p, zh);
+        cur.clear();
+        if !syls.is_empty() {
+            pieces.push((syls, delim));
+        }
+    };
+    for c in text.chars() {
+        if is_lyric_punct(c) {
+            flush(&mut cur, Some(c));
+        } else {
+            cur.push(c);
+        }
+    }
+    flush(&mut cur, None);
+    if !pieces.iter().any(|(syls, _)| syls.iter().any(|s| s.tone.is_some())) {
+        return None;
+    }
+    Some(
+        pieces
+            .into_iter()
+            .map(|(syls, delim)| {
+                let mut segs: Vec<Segment> = Vec::new();
+                let (mut words, mut word) = (Vec::new(), String::new());
+                let mut prev_tone = None;
+                let spoken: Vec<&Syllable> = syls.iter().filter(|s| s.melisma != Some(true)).collect();
+                for (i, s) in spoken.iter().enumerate() {
+                    let timeless = |c: &Segment| Segment { dur: None, ..c.clone() };
+                    segs.extend(s.onset.iter().map(timeless));
+                    let mut nucleus = timeless(&s.nucleus);
+                    if let Some(t) = s.tone {
+                        nucleus.pitch = speech_tone_bends(t, prev_tone, i + 1 == spoken.len());
+                        // a toned syllable is stressed (so it's as long as English's stressed vowel);
+                        // a neutral one isn't
+                        nucleus.stress = Some(u8::from(t < 5));
+                        prev_tone = Some(t);
+                    }
+                    segs.push(nucleus);
+                    segs.extend(s.coda.iter().map(timeless));
+                    word.push_str(&s.text);
+                    if s.word_end {
+                        segs.last_mut().unwrap().word_end = Some(true);
+                        words.push(std::mem::take(&mut word));
+                    }
+                }
+                let d = delim.unwrap_or(' ');
+                let pause = if matches!(d, '.' | '!' | '?' | '。' | '！' | '？') {
+                    0.35
+                } else if delim.is_some() {
+                    0.18
+                } else {
+                    0.3
+                };
+                Phrase { segments: segs, intonation: if matches!(d, '?' | '？') { Intonation::Question } else { Intonation::Statement }, pause, words }
+            })
+            .collect(),
+    )
 }

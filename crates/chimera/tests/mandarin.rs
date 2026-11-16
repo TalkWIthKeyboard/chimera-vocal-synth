@@ -3,8 +3,8 @@
 use chimera::phonetics::english::EnglishG2P;
 use chimera::phonetics::korean::Korean;
 use chimera::phonetics::mandarin::{Mandarin, MandarinLexicon, Pinyin, tone_bends};
-use chimera::phonetics::syllables::{English, FrontEnd, read_lyrics};
-use chimera::phonetics::{Edge, Syllable};
+use chimera::phonetics::syllables::{English, FrontEnd, read_lyrics, speech_phrases_with};
+use chimera::phonetics::{Edge, Intonation, Segment, Syllable};
 
 const LEX: &str = "举\tju3\n风\tfeng1\n多\tduo1\n头\ttou2\n鸟\tniao3\n光\tguang1\n四\tsi4\n是\tshi4\n点\tdian3\n哪\tna3\n儿\ter2\n女\tnv3\n子\tzi5\n块\tkuai4\n一会儿\tyi1 hui4 er5\n天\ttian1\n你\tni3\n好\thao3\n我\two3\n不\tbu4\n会\thui4\n银\tyin2\n行\txing2\n银行\tyin2 hang2\n走\tzou3\n的\tde5\n跑\tpao3\n一\tyi1\n个\tge4\n绿\tlv4\n学\txue2\n吃\tchi1\n爱\tai4\n去\tqu4\n";
 
@@ -159,4 +159,70 @@ fn mandarin_timing_and_vowels() {
     // Mandarin's own vowels: eng back [ɤŋ], uo open [uɔ], ou central [əʊ], iao one three-part nucleus
     let n: Vec<String> = syls("风多头鸟").iter().map(|s| s.nucleus.ipa.clone()).collect();
     assert_eq!(n, ["ɤ", "uɔ", "əʊ", "iaʊ"]);
+}
+
+// ---- speech: the same front ends, a tone drawn around the intonation
+
+fn speak(text: &str) -> Option<Vec<chimera::phonetics::english::Phrase>> {
+    speech_phrases_with(text, &EnglishG2P::new(), &lex())
+}
+/// the vowels of a phrase that carry a tone: (ipa, its bends as (edge, semitones))
+fn toned(segs: &[Segment]) -> Vec<(String, Vec<(Edge, f64)>)> {
+    segs.iter().filter(|s| !s.pitch.is_empty()).map(|s| (s.ipa.clone(), s.pitch.iter().map(|b| (b.at, b.st)).collect())).collect()
+}
+
+#[test]
+fn speech_writes_each_tone_as_bends_around_the_intonation() {
+    // 你好 is ní hǎo after sandhi (inside one written word: #85's pinyin doesn't carry it across a
+    // space): 35, then the phrase-final third tone as 214
+    let p = speak("nǐhǎo.").unwrap();
+    assert_eq!(p.len(), 1);
+    let t = toned(&p[0].segments);
+    assert_eq!(t[0].1, [(Edge::Start, 0.0), (Edge::End, 5.0)]);
+    assert_eq!(t[1].1, [(Edge::Start, -2.5), (Edge::Middle, -5.0), (Edge::End, 2.5)]);
+    // a third tone inside a phrase stays low (21)
+    let t = toned(&speak("wǒ ài nǐ").unwrap()[0].segments);
+    assert_eq!(t[0].1, [(Edge::Start, -2.5), (Edge::End, -5.0)], "wǒ before ài");
+    assert_eq!(t[2].1.len(), 3, "nǐ ends the phrase");
+}
+
+#[test]
+fn speech_neutral_tone_follows_the_tone_before() {
+    // xièxie: 4 then 5; a neutral tone after a fourth is the lowest level, held over the rhyme
+    let t = toned(&speak("xièxie").unwrap()[0].segments);
+    assert_eq!(t[1].1, [(Edge::Middle, -5.0)]);
+}
+
+#[test]
+fn speech_punctuation_makes_phrases_and_a_question_asks() {
+    let p = speak("nǐ hǎo, wǒ ài nǐ?").unwrap();
+    assert_eq!(p.len(), 2);
+    assert_eq!((p[0].intonation, p[0].pause), (Intonation::Statement, 0.18));
+    assert_eq!((p[1].intonation, p[1].pause), (Intonation::Question, 0.35));
+    assert_eq!(p[1].words, ["wǒ", "ài", "nǐ"]);
+}
+
+#[test]
+fn speech_text_without_mandarin_is_left_to_english() {
+    // one accented letter doesn't turn a text Mandarin (#48's isMandarin did), and plain Latin is English
+    for t in ["Hello world.", "My résumé is on the table.", "Beyoncé sang a song in the café.", "We met in room a1 today."] {
+        assert!(speak(t).is_none(), "{t}");
+    }
+}
+
+#[test]
+fn speech_mixed_text_keeps_the_english_words_and_their_stress() {
+    let p = speak("我爱你 hello").unwrap();
+    let segs = &p[0].segments;
+    assert_eq!(toned(segs).len(), 3, "three characters, three tones");
+    // hello's stressed vowel has no bends (English's intonation reads it) and is still stressed
+    assert!(segs.iter().any(|s| s.pitch.is_empty() && s.stress == Some(1)), "{segs:?}");
+    assert!(segs.iter().any(|s| s.ipa == "h"));
+}
+
+#[test]
+fn speech_takes_the_planners_durations_not_the_sung_ones() {
+    // 安 ān has a nasal coda sung at 100 ms; in speech no segment has a duration of its own
+    let p = speak("ān").unwrap();
+    assert!(p[0].segments.iter().all(|s| s.dur.is_none()));
 }

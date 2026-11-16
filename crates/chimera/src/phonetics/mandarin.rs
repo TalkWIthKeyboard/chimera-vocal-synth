@@ -149,6 +149,41 @@ pub fn tone_bends(tone: u8) -> Vec<Bend> {
 }
 
 
+/// Semitones per step of Chao's five tone levels (3 is the speaker's base pitch): a male
+/// speaker's tonal range is about an octave, so 1-5 spans 10 semitones.
+const CHAO_STEP: f64 = 2.5;
+
+/// How a tone moves the voice in speech, as bends around the intonation baseline (a sung tone only
+/// colours its note: [`tone_bends`]). Chao's levels, spread evenly over the rhyme with a fifth of it
+/// each: 1 is 55, 2 is 35, 4 is 51, and 3 is low (21), rising to 214 at the end of a phrase
+/// (`last`). The neutral tone is a short level set by the tone before it (`prev`): 2 after a first
+/// tone, 3 after a second, 4 after a third, 1 after a fourth.
+pub fn speech_tone_bends(tone: u8, prev: Option<u8>, last: bool) -> Vec<Bend> {
+    let levels: &[f64] = match tone {
+        1 => &[5.0, 5.0],
+        2 => &[3.0, 5.0],
+        3 if last => &[2.0, 1.0, 4.0],
+        3 => &[2.0, 1.0],
+        4 => &[5.0, 1.0],
+        _ => match prev {
+            Some(1) => &[2.0],
+            Some(2) => &[3.0],
+            Some(3) => &[4.0],
+            Some(4) => &[1.0],
+            _ => &[3.0],
+        },
+    };
+    // one level holds the whole rhyme; more sit at its start, middle (if three) and end
+    let at = |k: usize| match (levels.len(), k) {
+        (1, _) => Edge::Middle,
+        (_, 0) => Edge::Start,
+        (3, 1) => Edge::Middle,
+        _ => Edge::End,
+    };
+    let len = if levels.len() == 1 { 1.0 } else { 0.2 };
+    levels.iter().enumerate().map(|(k, l)| Bend { at: at(k), len, max: 1.0, st: (l - 3.0) * CHAO_STEP }).collect()
+}
+
 /// Fraction of a vowel nasalised before -n/-ng.
 const NASAL_LEAD: f64 = 0.4;
 
@@ -341,6 +376,7 @@ pub fn pinyin_syllable(py: &str, text: &str) -> Option<Syllable> {
         nucleus: Segment::new(nucleus),
         coda: coda.iter().map(|c| Segment { dur: coda_dur(c), ..Segment::new(c) }).collect(),
         pitch: tone_bends(t),
+        tone: Some(t),
         // vowels before -n/-ng are nasalised. (Lighter neutral tones, breath 0.7 on 的 了, sounded
         // more natural but made them harder to recognise in the scramble test, so they stay full.)
         nasal_lead: (!coda.is_empty()).then_some(NASAL_LEAD),
