@@ -56,6 +56,12 @@ pub struct Segment {
     /// vowel said with them part-open (IPA combining diaeresis below); None or false: modal
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub breathy: Option<bool>,
+    /// pitch bends over this vowel's rhyme in speech, as its front end writes them (a Mandarin tone):
+    /// each is a target around the intonation baseline (`st` semitones), and the voice moves between
+    /// them. A vowel that has some takes no stress accent and no final fall: the bends are its pitch.
+    /// (Sung notes carry theirs on the `Syllable` instead.) None: the intonation alone.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pitch: Vec<Bend>,
 }
 
 impl Segment {

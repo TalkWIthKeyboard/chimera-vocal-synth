@@ -7,7 +7,7 @@
 
 use super::durations::{SegInfo, klatt_durations};
 use super::inventory::{Glottal, Manner, PhonemeDef, Voicing, phoneme};
-use super::{Intonation, Plan, PlannedSegment, Segment};
+use super::{Bend, Edge, Intonation, Plan, PlannedSegment, Segment};
 use crate::anatomy::human::{ArticKey, ArticPatch, BodyMix, BodyName};
 use crate::control::score::{ControlKey, Gesture, Targets};
 use crate::math::{js_max, js_min, js_round};
@@ -221,6 +221,7 @@ struct Seg<'a> {
     nasalized: Option<bool>,
     palatalized: Option<bool>,
     breathy: Option<bool>,
+    pitch: &'a [Bend],
 }
 
 /// glottal abduction of breathy voice: /ɦ/'s, a gap the folds still vibrate across
@@ -264,10 +265,10 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             };
             for (i, p) in parts.iter().enumerate() {
                 let dur = base * shares.get(i).copied().unwrap_or(1.0);
-                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, nasalized: s.nasalized, palatalized: None, breathy: s.breathy });
+                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, aspirated: None, vot: None, nasalized: s.nasalized, palatalized: None, breathy: s.breathy, pitch: if i == 0 { &s.pitch } else { &[] } });
             }
         } else {
-            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, nasalized: s.nasalized, palatalized: s.palatalized, breathy: s.breathy });
+            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, aspirated: s.aspirated, vot: s.vot, nasalized: s.nasalized, palatalized: s.palatalized, breathy: s.breathy, pitch: &s.pitch });
         }
     }
     for s in segs.iter_mut() {
@@ -452,9 +453,29 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             nuclear = i as isize;
         }
     }
+    let mut in_tone = false; // inside a vowel that has bends (a diphthong's glide part is too)
     for (n, &i) in v_idx.iter().enumerate() {
         let s = &segs[i];
         let Span { t0, t1 } = times[i];
+        if !s.glide_from {
+            in_tone = !s.pitch.is_empty();
+        }
+        if in_tone && !truthy(s.f0) {
+            if !s.glide_from {
+                let prev = v_idx[..n].iter().rev().copied().find(|&k| !segs[k].glide_from && !segs[k].pitch.is_empty());
+                let next = v_idx[n + 1..].iter().copied().find(|&k| !segs[k].glide_from);
+                let rhyme_end = times[rhyme_last(&segs, i)].t1;
+                // the pitch moves from one syllable's bends to the next's during the consonants between
+                let ramp_in = prev.map_or(0.06, |k| js_max(0.03, t0 - times[rhyme_last(&segs, k)].t1));
+                let ramp_out = next.map_or(0.06, |k| js_max(0.03, times[k].t0 - rhyme_end));
+                let mut st = -1.7 * (t0 - o.t0) / total; // declination, ~1.7 semitones over the phrase
+                if next.is_none() && o.intonation == Some(Intonation::Question) {
+                    st += 3.0;
+                }
+                speech_bends(&s.pitch, t0, rhyme_end, ramp_in, ramp_out, f0 * crate::math::pow(2.0, st / 12.0), &mut gestures);
+            }
+            continue;
+        }
         // pitch holds through the consonants up to the next vowel (instead of sagging to the base)
         let hold = if n < v_idx.len() - 1 { js_max(t1, times[v_idx[n + 1]].t0 - 0.03) } else { t1 };
         let mut target: f64;
@@ -562,6 +583,42 @@ fn pre_placed_behind_closure(segs: &[Seg], i: usize) -> bool {
 /// Whether a closure at `front` lies in front of one at `back`.
 fn closes_in_front(front: &str, back: &str) -> bool {
     matches!((place_rank(front), place_rank(back)), (Some(f), Some(b)) if f < b)
+}
+
+/// The last segment of the rhyme whose nucleus is vowel `i`: a diphthong's second target, then a
+/// nasal coda (a nasal not followed by a vowel; one before a vowel is the next syllable's onset).
+fn rhyme_last(segs: &[Seg], i: usize) -> usize {
+    let mut j = i;
+    while j + 1 < segs.len() && segs[j + 1].glide_from {
+        j += 1;
+    }
+    let coda = segs.get(j + 1).and_then(|s| s.def).is_some_and(|d| d.nasal == Some(true)) && segs.get(j + 2).is_none_or(|s| s.vowel.is_none());
+    if coda { j + 1 } else { j }
+}
+
+/// Pitch gestures for a vowel's bends in speech. Each bend is a target `st` semitones from `base`
+/// (the intonation baseline), held over its window of the rhyme [a, b]; the voice crossfades
+/// between the bends and, over `ramp_in` / `ramp_out`, to the neighbouring syllables. (A sung
+/// bend instead colours a note whose own pitch carries on: `sing::bend_gestures`.)
+fn speech_bends(bends: &[Bend], a: f64, b: f64, ramp_in: f64, ramp_out: f64, base: f64, out: &mut Vec<Gesture>) {
+    let d = b - a;
+    let windows: Vec<(f64, f64)> = bends
+        .iter()
+        .map(|bend| {
+            let len = js_min(bend.len * d, bend.max);
+            match bend.at {
+                Edge::Start => (a, a + len),
+                Edge::Middle => ((a + b - len) / 2.0, (a + b + len) / 2.0),
+                Edge::End => (b - len, b),
+            }
+        })
+        .collect();
+    for (k, bend) in bends.iter().enumerate() {
+        let (s0, s1) = windows[k];
+        let r_in = if k == 0 { ramp_in } else { js_max(0.01, s0 - windows[k - 1].1) };
+        let r_out = if k == bends.len() - 1 { ramp_out } else { js_max(0.01, windows[k + 1].0 - s1) };
+        out.push(Gesture::new(s0, s1, r_in, r_out, 1.0, one(ControlKey::F0, base * crate::math::pow(2.0, bend.st / 12.0))).label("pitch"));
+    }
 }
 
 /// Ramps of a given pitch (a sung note's) on a segment `dur` long: 60 ms, but at most half the
