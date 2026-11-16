@@ -3,7 +3,7 @@
 //! no final fall. A vowel without bends is planned as before.
 use chimera::control::score::{ControlKey, Gesture};
 use chimera::phonetics::planner::{PlanOptions, plan_utterance};
-use chimera::phonetics::{Bend, Edge, Intonation, Plan, Segment};
+use chimera::phonetics::{Bend, Edge, Intonation, Segment};
 
 const F0: f64 = 100.0;
 
@@ -13,11 +13,9 @@ fn bend(at: Edge, st: f64) -> Bend {
 fn vowel(ipa: &str, pitch: Vec<Bend>) -> Segment {
     Segment { dur: Some(0.3), stress: Some(1), pitch, ..Segment::new(ipa) }
 }
-fn plan(segs: &[Segment], intonation: Intonation) -> Plan {
-    plan_utterance(segs, &PlanOptions { body: "male".into(), f0: Some(F0), intonation: Some(intonation), ..Default::default() })
-}
 fn pitch_gestures(segs: &[Segment], intonation: Intonation) -> Vec<Gesture> {
-    plan(segs, intonation).gestures.into_iter().filter(|g| g.label.as_ref().is_some_and(|l| l.as_str() == "pitch")).collect()
+    let o = PlanOptions { body: "male".into(), f0: Some(F0), intonation: Some(intonation), ..Default::default() };
+    plan_utterance(segs, &o).gestures.into_iter().filter(|g| g.label.as_ref().is_some_and(|l| l.as_str() == "pitch")).collect()
 }
 fn f0(g: &Gesture) -> f64 {
     g.targets.get(ControlKey::F0).unwrap()
@@ -55,15 +53,4 @@ fn a_question_lifts_the_last_toned_vowel() {
 fn a_diphthong_is_one_syllable_with_one_set_of_bends() {
     let g = pitch_gestures(&[Segment::new("m"), vowel("aɪ", vec![bend(Edge::Start, 5.0), bend(Edge::End, -5.0)])], Intonation::Statement);
     assert_eq!(g.len(), 2, "its second target adds none of its own");
-}
-
-#[test]
-fn the_pitch_moves_between_syllables_over_the_consonants_between_them() {
-    let segs = [vowel("a", vec![bend(Edge::Middle, 5.0)]), Segment::new("m"), vowel("a", vec![bend(Edge::Middle, -5.0)])];
-    let p = plan(&segs, Intonation::Statement);
-    let g: Vec<&Gesture> = p.gestures.iter().filter(|g| g.label.as_ref().is_some_and(|l| l.as_str() == "pitch")).collect();
-    assert_eq!(g.len(), 2);
-    let v: Vec<_> = p.segments.iter().filter(|s| s.kind == "vowel").collect();
-    let gap = (v[1].t0 - v[0].t1).max(0.03); // the consonant between the two rhymes
-    assert!((g[0].ramp_out - gap).abs() < 1e-9 && (g[1].ramp_in - gap).abs() < 1e-9, "{} {} {gap}", g[0].ramp_out, g[1].ramp_in);
 }

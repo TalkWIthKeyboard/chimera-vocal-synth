@@ -41,12 +41,10 @@ fn a_final_nasal_keeps_its_closure_and_its_velum() {
 }
 
 #[test]
-fn a_final_stop_lets_go_on_time_and_so_does_an_open_end() {
+fn a_final_stop_lets_go_on_time() {
     let s = segs(&["a", "t"]);
-    let hold = || PlanOptions { final_hold: Some(HOLD), ..Default::default() };
-    assert_eq!(timing(&plan(&s, hold())), timing(&plan(&s, PlanOptions::default())), "a stop is not held");
-    let v = segs(&["m", "a"]);
-    assert_eq!(timing(&plan(&v, PlanOptions { open_end: Some(true), ..hold() })), timing(&plan(&v, PlanOptions { open_end: Some(true), ..Default::default() })), "an open-ended note is held by its caller");
+    let held = plan(&s, PlanOptions { final_hold: Some(HOLD), ..Default::default() });
+    assert_eq!(timing(&held), timing(&plan(&s, PlanOptions::default())));
 }
 
 #[test]

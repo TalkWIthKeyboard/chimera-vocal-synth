@@ -615,23 +615,21 @@ fn rhyme_last(segs: &[Seg], i: usize) -> usize {
 /// between the bends and, over `ramp_in` / `ramp_out`, to the neighbouring syllables. (A sung
 /// bend instead colours a note whose own pitch carries on: `sing::bend_gestures`.)
 fn speech_bends(bends: &[Bend], a: f64, b: f64, ramp_in: f64, ramp_out: f64, base: f64, out: &mut Vec<Gesture>) {
-    let d = b - a;
-    let windows: Vec<(f64, f64)> = bends
-        .iter()
-        .map(|bend| {
-            let len = js_min(bend.len * d, bend.max);
-            match bend.at {
-                Edge::Start => (a, a + len),
-                Edge::Middle => ((a + b - len) / 2.0, (a + b + len) / 2.0),
-                Edge::End => (b - len, b),
-            }
-        })
-        .collect();
+    let window = |bend: &Bend| {
+        let len = js_min(bend.len * (b - a), bend.max);
+        match bend.at {
+            Edge::Start => (a, a + len),
+            Edge::Middle => ((a + b - len) / 2.0, (a + b + len) / 2.0),
+            Edge::End => (b - len, b),
+        }
+    };
+    let mut prev_end = None;
     for (k, bend) in bends.iter().enumerate() {
-        let (s0, s1) = windows[k];
-        let r_in = if k == 0 { ramp_in } else { js_max(0.01, s0 - windows[k - 1].1) };
-        let r_out = if k == bends.len() - 1 { ramp_out } else { js_max(0.01, windows[k + 1].0 - s1) };
+        let (s0, s1) = window(bend);
+        let r_in = prev_end.map_or(ramp_in, |e| js_max(0.01, s0 - e));
+        let r_out = bends.get(k + 1).map_or(ramp_out, |next| js_max(0.01, window(next).0 - s1));
         out.push(Gesture::new(s0, s1, r_in, r_out, 1.0, one(ControlKey::F0, base * crate::math::pow(2.0, bend.st / 12.0))).label("pitch"));
+        prev_end = Some(s1);
     }
 }
 

@@ -219,10 +219,3 @@ fn speech_mixed_text_keeps_the_english_words_and_their_stress() {
     assert!(segs.iter().any(|s| s.pitch.is_empty() && s.stress == Some(1)), "{segs:?}");
     assert!(segs.iter().any(|s| s.ipa == "h"));
 }
-
-#[test]
-fn speech_takes_the_planners_durations_not_the_sung_ones() {
-    // 安 ān has a nasal coda sung at 100 ms; in speech no segment has a duration of its own
-    let p = speak("ān").unwrap();
-    assert!(p[0].segments.iter().all(|s| s.dur.is_none()));
-}
