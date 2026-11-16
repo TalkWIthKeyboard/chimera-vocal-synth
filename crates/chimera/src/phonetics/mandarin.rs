@@ -18,6 +18,7 @@
 //! English.
 
 use super::syllables::FrontEnd;
+use serde::Serialize;
 use super::{Bend, Edge, Segment, Syllable};
 use std::collections::HashMap;
 
@@ -183,6 +184,22 @@ pub fn speech_tone_bends(tone: u8, prev: Option<u8>, last: bool) -> Vec<Bend> {
     let len = if levels.len() == 1 { 1.0 } else { 0.2 };
     levels.iter().enumerate().map(|(k, l)| Bend { at: at(k), len, max: 1.0, st: (l - 3.0) * CHAO_STEP }).collect()
 }
+
+/// How Mandarin speech wants the ends of an utterance planned, as `PlanOptions` fields (the planner
+/// knows no language: the caller that spoke text through [`super::syllables::speech_phrases_with`]
+/// passes these on). Its last vowel and nasal are held past their plan, and the breath starts later:
+/// let go on time, the tongue was already relaxing under the last of the voicing and the off-glide
+/// was heard as a coda (出发 → 出汗), a final nasal's release as a syllable (今晚 → 今晚呢), and a
+/// breath that voiced before an initial affricate or approximant had formed as a syllable of its
+/// own (请客 → 不请客).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechEnds {
+    pub final_hold: f64,
+    pub breath_at: f64,
+}
+
+pub const SPEECH_ENDS: SpeechEnds = SpeechEnds { final_hold: 0.12, breath_at: 0.12 };
 
 /// Fraction of a vowel nasalised before -n/-ng.
 const NASAL_LEAD: f64 = 0.4;

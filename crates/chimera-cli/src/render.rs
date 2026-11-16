@@ -23,6 +23,7 @@ use chimera::phonetics::sing::{
 };
 use chimera::phonetics::songs::DEMO_SONGS;
 use chimera::phonetics::mandarin::{MandarinLexicon, is_han};
+use chimera::phonetics::mandarin::SPEECH_ENDS;
 use chimera::phonetics::syllables::{lyrics_to_syllables, lyrics_to_syllables_with, speech_phrases_with};
 use chimera::phonetics::{Intonation, Plan, Syllable};
 use chimera::voice::human_voice::{HumanVoice, SCOPE_POINTS, SourcePatch, VoiceTelemetry};
@@ -181,7 +182,10 @@ pub fn say(g: &EnglishG2P, text: &str, body_name: &str) -> Result<Spoken, String
     let b = body(body_name)?;
     let f0 = text_f0(body_name);
     let lex = if text.chars().any(is_han) { zh()? } else { MandarinLexicon::new() };
-    let phrases = speech_phrases_with(text, g, &lex).unwrap_or_else(|| g.to_phrases(text));
+    let (phrases, ends) = match speech_phrases_with(text, g, &lex) {
+        Some(p) => (p, Some(SPEECH_ENDS)),
+        None => (g.to_phrases(text), None),
+    };
     let shown: Vec<String> = phrases
         .iter()
         .map(|p| {
@@ -213,6 +217,8 @@ pub fn say(g: &EnglishG2P, text: &str, body_name: &str) -> Result<Spoken, String
             body: body_name.into(),
             t0: 0.05,
             f0: Some(f0),
+            final_hold: ends.map(|e| e.final_hold),
+            breath_at: ends.map(|e| e.breath_at),
             ..Default::default()
         },
     );

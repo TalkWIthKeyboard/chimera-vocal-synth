@@ -2,7 +2,7 @@
 import type { BodyMix } from "../wasm/types.ts";
 import { EnglishG2P, MandarinLexicon, hasHan, speechPhrases, type Phrase } from "../wasm/engine.ts";
 import { tokenizeIpa } from "../wasm/engine.ts";
-import { planPhrases, type Plan, type Segment } from "../wasm/engine.ts";
+import { planPhrases, type Plan, type PlanOptions, type Segment } from "../wasm/engine.ts";
 import { engine } from "../audio/AudioEngine.ts";
 import type { Gesture } from "../wasm/types.ts";
 import { ipaPhraseTexts } from "./skipped.ts";
@@ -50,8 +50,8 @@ export function transcribe(phrases: { segments: Segment[]; intonation?: string }
   return phrases.map((p) => p.segments.map((s) => (s.stress === 1 ? "ˈ" : s.stress === 2 ? "ˌ" : "") + s.ipa + (s.wordEnd ? " " : "")).join("").trim() + (p.intonation === "question" ? "?" : "")).join(" | ");
 }
 
-export function speakPhrases(phrases: { segments: Segment[]; intonation?: "statement" | "question" | "flat"; pause?: number; words?: string[] }[], o: { body: BodyMix; rate: number; f0: number }): SpokenPlan {
-  const plan = planPhrases(phrases, { body: o.body, t0: 0, rate: o.rate, f0: o.f0 });
+export function speakPhrases(phrases: { segments: Segment[]; intonation?: "statement" | "question" | "flat"; pause?: number; words?: string[] }[], o: { body: BodyMix; rate: number; f0: number; ends?: Pick<PlanOptions, "finalHold" | "breathAt"> }): SpokenPlan {
+  const plan = planPhrases(phrases, { body: o.body, t0: 0, rate: o.rate, f0: o.f0, ...o.ends });
   const id = engine.schedule({ gestures: plan.gestures.map((g: Gesture) => ({ ...g, targets: { ...g.targets } })), segments: plan.segments, end: plan.end });
   current = { plan, offset: null, id, transcription: transcribe(phrases), words: wordSpans(phrases, plan) };
   for (const l of listeners) l(current);
@@ -61,6 +61,7 @@ export function speakPhrases(phrases: { segments: Segment[]; intonation?: "state
 export async function speakText(text: string, o: { ipa: boolean; body: BodyMix; rate: number; f0: number }): Promise<SpokenPlan | null> {
   if (!text.trim()) return null;
   let phrases: Phrase[];
+  let ends: Pick<PlanOptions, "finalHold" | "breathAt"> | undefined;
   if (o.ipa) phrases = ipaToPhrases(text);
   else {
     try {
@@ -69,10 +70,12 @@ export async function speakText(text: string, o: { ipa: boolean; body: BodyMix; 
       // dictionary unavailable: the letter-to-sound rules still work
     }
     if (hasHan(text) && !zh.loaded) await zh.load().catch(() => {}); // pinyin with tones still works without it
-    phrases = speechPhrases(text) ?? g2p.toPhrases(text);
+    const mandarin = speechPhrases(text);
+    phrases = mandarin?.phrases ?? g2p.toPhrases(text);
+    ends = mandarin?.ends;
   }
   if (!phrases.length) return null;
-  return speakPhrases(phrases, o);
+  return speakPhrases(phrases, { ...o, ends });
 }
 
 export function stopSpeaking(): void {

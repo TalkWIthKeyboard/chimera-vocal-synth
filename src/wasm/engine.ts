@@ -152,8 +152,8 @@ export class MandarinLexicon {
   }
 }
 
-/** Speech phrases for text with Mandarin in it (characters, or pinyin with tones), read word by word through the lyrics' front ends; null when no word is Mandarin, so the caller speaks it as English. */
-export function speechPhrases(text: string): Phrase[] | null {
+/** Speech phrases for text with Mandarin in it (characters, or pinyin with tones), read word by word through the lyrics' front ends, and the PlanOptions fields its speech wants (spread them into planPhrases' options); null when no word is Mandarin, so the caller speaks it as English. */
+export function speechPhrases(text: string): { phrases: Phrase[]; ends: Pick<PlanOptions, "finalHold" | "breathAt"> } | null {
   return call("speechPhrases", { text });
 }
 
@@ -180,6 +180,10 @@ export interface PlanOptions {
   /** a sung phrase (planSong sets it): consonants given a pitch hold it, and pitch ramps shrink
    *  to fit short notes */
   sung?: boolean;
+  /** seconds the utterance's last vowel or nasal is held past its plan (unset: let go on time) */
+  finalHold?: number;
+  /** seconds from the start to the start of the breath (unset: 40 ms) */
+  breathAt?: number;
 }
 
 export function planUtterance(segments: Segment[], options: PlanOptions): Plan {
