@@ -152,6 +152,11 @@ export class MandarinLexicon {
   }
 }
 
+/** Speech phrases for text with Mandarin in it (characters, or pinyin with tones), read word by word through the lyrics' front ends; null when no word is Mandarin, so the caller speaks it as English. */
+export function speechPhrases(text: string): Phrase[] | null {
+  return call("speechPhrases", { text });
+}
+
 /** Lyrics → sung syllables through the built-in front ends: English (the page's dictionary, see EnglishG2P), Korean, and Mandarin once its lexicon is loaded. */
 export function lyricsToSyllables(text: string): Syllable[] {
   return call("lyricsToSyllables", { text });

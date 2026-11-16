@@ -1,6 +1,6 @@
 /** Main-thread speech planning: text/IPA → phrases → gestural plan → worklet. */
 import type { BodyMix } from "../wasm/types.ts";
-import { EnglishG2P, MandarinLexicon, type Phrase } from "../wasm/engine.ts";
+import { EnglishG2P, MandarinLexicon, hasHan, speechPhrases, type Phrase } from "../wasm/engine.ts";
 import { tokenizeIpa } from "../wasm/engine.ts";
 import { planPhrases, type Plan, type Segment } from "../wasm/engine.ts";
 import { engine } from "../audio/AudioEngine.ts";
@@ -68,7 +68,8 @@ export async function speakText(text: string, o: { ipa: boolean; body: BodyMix; 
     } catch {
       // dictionary unavailable: the letter-to-sound rules still work
     }
-    phrases = g2p.toPhrases(text);
+    if (hasHan(text) && !zh.loaded) await zh.load().catch(() => {}); // pinyin with tones still works without it
+    phrases = speechPhrases(text) ?? g2p.toPhrases(text);
   }
   if (!phrases.length) return null;
   return speakPhrases(phrases, o);

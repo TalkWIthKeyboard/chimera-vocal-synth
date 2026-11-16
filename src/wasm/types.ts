@@ -165,6 +165,8 @@ export interface Segment {
   palatalized?: boolean;
   /** breathy voice: a voiced stop or affricate's release (IPA ʱ), or a vowel (combining diaeresis below) */
   breathy?: boolean;
+  /** pitch bends over this vowel's rhyme in speech (a Mandarin tone), around the intonation; unset: the intonation alone */
+  pitch?: Bend[];
 }
 
 /** What the engine will not say as written in a piece of IPA text (see `skippedIpa`). */
@@ -213,6 +215,8 @@ export interface Syllable {
   nasalLead?: number;
   /** the share of a falling diphthong's note its off-glide takes (unset: 20%) */
   offglide?: number;
+  /** the syllable's lexical tone (Mandarin 1-4, 5 neutral); unset: a language without */
+  tone?: number;
 }
 
 /** A bend of the pitch inside a sung note: `st` semitones, at its vowel's start or end, over `len` of the vowel (at most `max` s). */

@@ -23,7 +23,7 @@ use chimera::phonetics::sing::{
 };
 use chimera::phonetics::songs::DEMO_SONGS;
 use chimera::phonetics::mandarin::{MandarinLexicon, is_han};
-use chimera::phonetics::syllables::{lyrics_to_syllables, lyrics_to_syllables_with};
+use chimera::phonetics::syllables::{lyrics_to_syllables, lyrics_to_syllables_with, speech_phrases_with};
 use chimera::phonetics::{Intonation, Plan, Syllable};
 use chimera::voice::human_voice::{HumanVoice, SCOPE_POINTS, SourcePatch, VoiceTelemetry};
 use std::io::Read;
@@ -174,12 +174,14 @@ pub fn text_f0(body_name: &str) -> f64 {
     }
 }
 
-/// Say `text` the way `render text` does: CMUdict G2P, the phrase planner from t0 = 50 ms, the
-/// body's speaking f0, 300 ms of tail. `chimera compare tsp` measures exactly these renders.
+/// Say `text` the way `render text` does: CMUdict G2P (text with Mandarin in it reads through the
+/// lyrics' front ends, as Speak does), the phrase planner from t0 = 50 ms, the body's speaking f0,
+/// 300 ms of tail. `chimera compare tsp` measures exactly these renders.
 pub fn say(g: &EnglishG2P, text: &str, body_name: &str) -> Result<Spoken, String> {
     let b = body(body_name)?;
     let f0 = text_f0(body_name);
-    let phrases = g.to_phrases(text);
+    let lex = if text.chars().any(is_han) { zh()? } else { MandarinLexicon::new() };
+    let phrases = speech_phrases_with(text, g, &lex).unwrap_or_else(|| g.to_phrases(text));
     let shown: Vec<String> = phrases
         .iter()
         .map(|p| {

@@ -13,7 +13,7 @@ use chimera::phonetics::planner::{self, PhraseInput, PlanOptions};
 use chimera::phonetics::sing::{self, MelismaOptions, NoteOnOptions, SongOptions, SungNote};
 use chimera::phonetics::english::EnglishG2P;
 use chimera::phonetics::mandarin::MandarinLexicon;
-use chimera::phonetics::syllables::lyrics_to_syllables_with;
+use chimera::phonetics::syllables::{lyrics_to_syllables_with, speech_phrases_with};
 use chimera::phonetics::{Segment, Syllable, ipa, songs, vowel_data};
 use chimera::voice::human_airway::HumanAirway;
 use serde_json::{Value, json};
@@ -134,6 +134,8 @@ fn dispatch(st: &mut State, req: &Value) -> Res {
             st.mandarin.load(&arg::<String>(req, "text")?);
             Ok(json!(true))
         }
+        // text with Mandarin in it → speech phrases through the same front ends (null: none, so English)
+        "speechPhrases" => to_json(&speech_phrases_with(&arg::<String>(req, "text")?, &st.g2p, &st.mandarin)),
         // every built-in front end: pinyin, English, Korean, and Mandarin once its lexicon is loaded
         "lyricsToSyllables" => to_json(&lyrics_to_syllables_with(&arg::<String>(req, "text")?, &st.g2p, &st.mandarin)),
         // ---------------------------------------------------------------- creatures
